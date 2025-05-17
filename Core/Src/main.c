@@ -22,21 +22,26 @@
 #include <string.h>
 #include <math.h>
 
-
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 	uint16_t adc_value;
 	
 	float value_left_photoresit;
 	float value_right_photoresit;
+	float value_upper_photoresit;
+	float value_lower_photoresit;
 	
 	float servo_result;
 	
-	char msg[50];
+	char msg[150];
 	
 	char msg_left_photoresit[50];
 	char msg_right_photoresit[50];
-	uint16_t val[2];
+	
+	char msg_upper_photoresit[50];
+	char msg_lower_photoresit[50];
+	
+	uint16_t val[4];
 	
 	uint8_t servo_left_position = 0;
 	uint8_t servo_right_position = 0;
@@ -78,7 +83,7 @@ static void MX_DMA_Init(void);
 static void MX_ADC1_Init(void);
 static void MX_USART1_UART_Init(void);
 static void MX_TIM2_Init(void);
-
+/* USER CODE BEGIN PFP */
 void smooth_move(uint16_t start_angle, uint16_t end_angle, uint16_t speed_ms){
 	uint16_t start_pulse = (start_angle * 2000 / 180) + 500;
 	uint16_t end_pulse = (end_angle * 2000 / 180) + 500;
@@ -90,8 +95,6 @@ void smooth_move(uint16_t start_angle, uint16_t end_angle, uint16_t speed_ms){
 	}
 	__HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_4, end_pulse);
 }
-/* USER CODE BEGIN PFP */
-
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -136,7 +139,6 @@ int main(void)
 	HAL_ADCEx_Calibration_Start(&hadc1);
 	
 	HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_4);
-	//TIM2->CCR2 = 1500;
 	__HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_4, 1500);
   /* USER CODE END 2 */
 
@@ -148,12 +150,18 @@ int main(void)
 
     /* USER CODE BEGIN 3 */
 	  HAL_GPIO_WritePin(GPIOC, LED_Pin, 0);
-	  HAL_ADC_Start_DMA(&hadc1, (uint32_t *)val, 2);
+	  HAL_ADC_Start_DMA(&hadc1, (uint32_t *)val, 4);
 	  
 	  value_left_photoresit = val[0];
 	  value_right_photoresit = val[1];
+	  value_upper_photoresit = val[2];
+	  value_lower_photoresit = val[3];
+	  
 	  HAL_Delay(500);
-	  sprintf(msg, "left: %.0f\r\nright: %.0f\r\n", value_left_photoresit, value_right_photoresit * 1.2);
+	  sprintf(msg, "left: %.0f\r\nright: %.0f\r\nup: %.0f\r\nlow: %.0f\r\n", 
+				value_left_photoresit, value_right_photoresit * 1.2, 
+	  value_upper_photoresit * 1.32, value_lower_photoresit);
+	  
 	  HAL_UART_Transmit(&huart1, (uint8_t*)msg, strlen(msg), HAL_MAX_DELAY);
 	  
 	  HAL_GPIO_WritePin(GPIOC, LED_Pin, 1);
@@ -267,7 +275,7 @@ static void MX_ADC1_Init(void)
   hadc1.Init.DiscontinuousConvMode = DISABLE;
   hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
   hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
-  hadc1.Init.NbrOfConversion = 2;
+  hadc1.Init.NbrOfConversion = 4;
   if (HAL_ADC_Init(&hadc1) != HAL_OK)
   {
     Error_Handler();
@@ -287,6 +295,24 @@ static void MX_ADC1_Init(void)
   */
   sConfig.Channel = ADC_CHANNEL_2;
   sConfig.Rank = ADC_REGULAR_RANK_2;
+  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Regular Channel
+  */
+  sConfig.Channel = ADC_CHANNEL_4;
+  sConfig.Rank = ADC_REGULAR_RANK_3;
+  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Regular Channel
+  */
+  sConfig.Channel = ADC_CHANNEL_5;
+  sConfig.Rank = ADC_REGULAR_RANK_4;
   if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
   {
     Error_Handler();
