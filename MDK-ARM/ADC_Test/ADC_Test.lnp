@@ -16,6 +16,8 @@
 "adc_test\stm32f1xx_hal_flash.o"
 "adc_test\stm32f1xx_hal_flash_ex.o"
 "adc_test\stm32f1xx_hal_exti.o"
+"adc_test\stm32f1xx_hal_tim.o"
+"adc_test\stm32f1xx_hal_tim_ex.o"
 "adc_test\stm32f1xx_hal_uart.o"
 "adc_test\system_stm32f1xx.o"
 --strict --scatter "ADC_Test\ADC_Test.sct"
