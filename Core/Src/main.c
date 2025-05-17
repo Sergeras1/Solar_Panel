@@ -22,6 +22,13 @@
 #include <string.h>
 #include <math.h>
 
+#define SERVO_LEFT 0
+#define SERVO_CENTER 90
+#define SERVO_RIGHT 180
+#define SERVO_UP 180   
+#define SERVO_DOWN 0    
+#define THRESHOLD 15.1f 
+
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 	uint16_t adc_value;
@@ -31,21 +38,26 @@
 	float value_upper_photoresit;
 	float value_lower_photoresit;
 	
-	float servo_result;
+	float servo_horizon_result;
+	float servo_vertical_result;
 	
 	char msg[150];
 	
-	char msg_left_photoresit[50];
+	/*char msg_left_photoresit[50];
 	char msg_right_photoresit[50];
 	
 	char msg_upper_photoresit[50];
-	char msg_lower_photoresit[50];
+	char msg_lower_photoresit[50];*/
 	
 	uint16_t val[4];
 	
 	uint8_t servo_left_position = 0;
 	uint8_t servo_right_position = 0;
-	uint8_t servo_center_position = 1; 
+	uint8_t servo_center_position_hor = 1; 
+	
+	uint8_t servo_upper_position = 0;
+	uint8_t servo_lower_position = 0;
+	uint8_t servo_center_position_ver = 1;
 	
 /* USER CODE END Includes */
 
@@ -69,6 +81,7 @@ ADC_HandleTypeDef hadc1;
 DMA_HandleTypeDef hdma_adc1;
 
 TIM_HandleTypeDef htim2;
+TIM_HandleTypeDef htim3;
 
 UART_HandleTypeDef huart1;
 
@@ -83,17 +96,18 @@ static void MX_DMA_Init(void);
 static void MX_ADC1_Init(void);
 static void MX_USART1_UART_Init(void);
 static void MX_TIM2_Init(void);
+static void MX_TIM3_Init(void);
 /* USER CODE BEGIN PFP */
-void smooth_move(uint16_t start_angle, uint16_t end_angle, uint16_t speed_ms){
+void smooth_move(TIM_HandleTypeDef *htim, uint32_t channel, uint16_t start_angle, uint16_t end_angle, uint16_t speed_ms){
 	uint16_t start_pulse = (start_angle * 2000 / 180) + 500;
 	uint16_t end_pulse = (end_angle * 2000 / 180) + 500;
 	int step = (start_pulse < end_pulse) ? 10 : -10;
 	
 	for(int pulse = start_pulse; pulse != end_pulse; pulse += step){
-		__HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_4, pulse);
+		__HAL_TIM_SET_COMPARE(htim, channel, pulse);
 		HAL_Delay(speed_ms);
 	}
-	__HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_4, end_pulse);
+	__HAL_TIM_SET_COMPARE(htim, channel, end_pulse);
 }
 /* USER CODE END PFP */
 
@@ -135,11 +149,15 @@ int main(void)
   MX_ADC1_Init();
   MX_USART1_UART_Init();
   MX_TIM2_Init();
+  MX_TIM3_Init();
   /* USER CODE BEGIN 2 */
 	HAL_ADCEx_Calibration_Start(&hadc1);
 	
 	HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_4);
-	__HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_4, 1500);
+	__HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_4, 1500); // Ставим в начальное положение сервопривода(горизонт) на 90*
+	
+	HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1);
+	__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, 1500); // Ставим в начальное положение сервопривода(вертикаль) на 90*
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -167,38 +185,86 @@ int main(void)
 	  HAL_GPIO_WritePin(GPIOC, LED_Pin, 1);
 	  
 	  ///SERVO///
-		servo_result = fabs((value_left_photoresit - value_right_photoresit)) / ((value_left_photoresit + value_right_photoresit) / 2) * 100;
-	 
+		 // Расчет разницы значений
+    float sum_hor = value_left_photoresit + value_right_photoresit;
+    float sum_ver = value_upper_photoresit + value_lower_photoresit;
+    
+    if(sum_hor > 0) {
+        servo_horizon_result = 200 * fabs(value_left_photoresit - value_right_photoresit) / sum_hor;
+    } else {
+        servo_horizon_result = 0;
+    }
+    
+    if(sum_ver > 0) {
+        servo_vertical_result = 200 * fabs(value_lower_photoresit - value_upper_photoresit) / sum_ver;
+    } else {
+        servo_vertical_result = 0;
+    }
 	  
-		if (value_left_photoresit > value_right_photoresit && servo_result > 15.1) {
-            if(!servo_left_position) { 
-                smooth_move(90, 0, 20);  
-                servo_left_position = 1;
-                servo_right_position = 0;
-                servo_center_position = 0;
-            }
+		/// Управление горизонтальным сервоприводом ///
+    if (value_left_photoresit > value_right_photoresit && servo_horizon_result > THRESHOLD) {
+        if(!servo_left_position) { 
+            smooth_move(&htim2, TIM_CHANNEL_4, SERVO_CENTER, SERVO_LEFT, 20);  
+            servo_left_position = 1;
+            servo_right_position = 0;
+            servo_center_position_hor = 0;
         }
-        else if (value_left_photoresit < value_right_photoresit && servo_result > 15.1) {
-            if(!servo_right_position) { 
-                smooth_move(90, 180, 20);  
-                servo_right_position = 1;
-                servo_left_position = 0;
-                servo_center_position = 0;
-            }
+    }
+    else if (value_left_photoresit < value_right_photoresit && servo_horizon_result > THRESHOLD) {
+        if(!servo_right_position) { 
+            smooth_move(&htim2, TIM_CHANNEL_4, SERVO_CENTER, SERVO_RIGHT, 20);  
+            servo_right_position = 1;
+            servo_left_position = 0;
+            servo_center_position_hor = 0;
         }
-        else {
-            if(!servo_center_position) { 
-                if(servo_left_position) {
-                    smooth_move(0, 90, 20);  
-                } else {
-                    smooth_move(180, 90, 20); 
-                }
-                servo_center_position = 1;
-                servo_left_position = 0;
-                servo_right_position = 0;
-            }
+    }
+    else if(!servo_center_position_hor) {
+        if(servo_left_position) {
+            smooth_move(&htim2, TIM_CHANNEL_4, SERVO_LEFT, SERVO_CENTER, 20);  
+        } else {
+            smooth_move(&htim2, TIM_CHANNEL_4, SERVO_RIGHT, SERVO_CENTER, 20); 
         }
-	  HAL_Delay(500);
+        servo_center_position_hor = 1;
+        servo_left_position = 0;
+        servo_right_position = 0;
+    }
+    
+    /// Управление вертикальным сервоприводом ///
+	if (value_lower_photoresit > value_upper_photoresit && servo_vertical_result > THRESHOLD) {
+		if(!servo_lower_position) { 
+			smooth_move(&htim3, TIM_CHANNEL_1, 
+					   servo_center_position_ver ? SERVO_CENTER : 
+					   (servo_upper_position ? SERVO_UP : SERVO_DOWN), 
+					   SERVO_DOWN, 20);
+			servo_upper_position = 0;
+			servo_lower_position = 1;
+			servo_center_position_ver = 0;
+		}
+	}
+	else if (value_lower_photoresit < value_upper_photoresit && servo_vertical_result > THRESHOLD) {
+		if(!servo_upper_position) { 
+			smooth_move(&htim3, TIM_CHANNEL_1, 
+					   servo_center_position_ver ? SERVO_CENTER : 
+					   (servo_lower_position ? SERVO_DOWN : SERVO_UP), 
+					   SERVO_UP, 20);
+			servo_upper_position = 1;
+			servo_lower_position = 0;
+			servo_center_position_ver = 0;
+		}
+	}
+	else if(servo_vertical_result <= THRESHOLD && !servo_center_position_ver) {
+		if(servo_lower_position) {
+			smooth_move(&htim3, TIM_CHANNEL_1, SERVO_DOWN, SERVO_CENTER, 20);  
+		} 
+		else if(servo_upper_position) {
+			smooth_move(&htim3, TIM_CHANNEL_1, SERVO_UP, SERVO_CENTER, 20); 
+		}
+		servo_upper_position = 0;
+		servo_lower_position = 0;
+		servo_center_position_ver = 1;
+	}
+    
+    HAL_Delay(50);
   }
   /* USER CODE END 3 */
 }
@@ -369,6 +435,55 @@ static void MX_TIM2_Init(void)
 
   /* USER CODE END TIM2_Init 2 */
   HAL_TIM_MspPostInit(&htim2);
+
+}
+
+/**
+  * @brief TIM3 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM3_Init(void)
+{
+
+  /* USER CODE BEGIN TIM3_Init 0 */
+
+  /* USER CODE END TIM3_Init 0 */
+
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+  TIM_OC_InitTypeDef sConfigOC = {0};
+
+  /* USER CODE BEGIN TIM3_Init 1 */
+
+  /* USER CODE END TIM3_Init 1 */
+  htim3.Instance = TIM3;
+  htim3.Init.Prescaler = 71;
+  htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim3.Init.Period = 20000;
+  htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_PWM_Init(&htim3) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim3, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigOC.OCMode = TIM_OCMODE_PWM1;
+  sConfigOC.Pulse = 1500;
+  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+  if (HAL_TIM_PWM_ConfigChannel(&htim3, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM3_Init 2 */
+
+  /* USER CODE END TIM3_Init 2 */
+  HAL_TIM_MspPostInit(&htim3);
 
 }
 
